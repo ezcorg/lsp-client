@@ -63,6 +63,9 @@ const clientCapabilities: lsp.ClientCapabilities = {
     references: {},
     diagnostic: {},
   },
+  workspace: {
+    configuration: true
+  },
   window: {
     showMessage: {}
   }
@@ -144,6 +147,12 @@ export type Transport = {
   unsubscribe(handler: (value: string) => void): void
 }
 
+const defaultRequestHandlers: {[method: string]: (client: LSPClient, params: any) => any} = {
+  "workspace/configuration": (_client, params: lsp.ConfigurationParams) => {
+    return params.items.map(() => null)
+  }
+}
+
 const defaultNotificationHandlers: {[method: string]: (client: LSPClient, params: any) => void} = {
   "window/logMessage": (client, params: lsp.LogMessageParams) => {
     if (params.type == 1) console.error("[lsp] " + params.message)
@@ -196,6 +205,12 @@ export type LSPClientConfig = {
   /// When no handler is found for a notification, it will be passed
   /// to this function, if given.
   unhandledNotification?: (client: LSPClient, method: string, params: any) => void
+  /// Handlers for server-initiated requests (requests from the server
+  /// to the client). The handler should return the result value for
+  /// the request. By default, `workspace/configuration` is handled
+  /// by returning `null` for each requested item. Any other
+  /// unhandled requests receive a "Method not implemented" error.
+  requestHandlers?: {[method: string]: (client: LSPClient, params: any) => any}
   /// Provide a set of extensions, which may be plain CodeMirror
   /// extensions, or objects containing additional client capabilities
   /// or notification handlers. Any CodeMirror extensions provided
@@ -370,10 +385,17 @@ export class LSPClient {
       if (deflt) deflt(this, value.params)
       else if (this.config.unhandledNotification) this.config.unhandledNotification(this, value.method, value.params)
     } else {
-      let resp: lsp.ResponseMessage = {
-        jsonrpc: "2.0",
-        id: value.id,
-        error: {code: -32601 /* MethodNotFound */, message: "Method not implemented"}
+      let handler = this.config.requestHandlers?.[value.method]
+        || defaultRequestHandlers[value.method]
+      let resp: lsp.ResponseMessage
+      if (handler) {
+        try {
+          resp = {jsonrpc: "2.0", id: value.id, result: handler(this, value.params)}
+        } catch(e: any) {
+          resp = {jsonrpc: "2.0", id: value.id, error: {code: -32603, message: e.message || String(e)}}
+        }
+      } else {
+        resp = {jsonrpc: "2.0", id: value.id, error: {code: -32601, message: "Method not implemented"}}
       }
       this.transport!.send(JSON.stringify(resp))
     }
