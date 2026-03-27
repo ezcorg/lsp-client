@@ -110,13 +110,42 @@ export abstract class Workspace {
 }
 
 class DefaultWorkspaceFile implements WorkspaceFile {
+  private views: Set<EditorView>
+
   constructor(readonly uri: string,
               readonly languageId: string,
               public version: number,
               public doc: Text,
-              readonly view: EditorView) {}
+              view: EditorView) {
+    this.views = new Set([view])
+  }
 
-  getView() { return this.view }
+  /// Add an additional view for this file.
+  addView(view: EditorView) {
+    this.views.add(view)
+  }
+
+  /// Remove a view. Returns true if views remain, false if file has no more views.
+  removeView(view: EditorView): boolean {
+    this.views.delete(view)
+    return this.views.size > 0
+  }
+
+  hasView(view: EditorView): boolean {
+    return this.views.has(view)
+  }
+
+  getView(main?: EditorView) {
+    if (main && this.views.has(main)) return main
+    // Return first available view
+    for (let v of this.views) return v
+    return null
+  }
+
+  /// Iterate all views for this file.
+  allViews(): IterableIterator<EditorView> {
+    return this.views[Symbol.iterator]()
+  }
 }
 
 export class DefaultWorkspace extends Workspace {
@@ -130,32 +159,48 @@ export class DefaultWorkspace extends Workspace {
   syncFiles() {
     let result: WorkspaceFileUpdate[] = []
     for (let file of this.files) {
-      let plugin = LSPPlugin.get(file.view)
-      if (!plugin) continue
-      let changes = plugin.unsyncedChanges
-      if (!changes.empty) {
-        result.push({changes, file, prevDoc: file.doc})
-        file.doc = file.view.state.doc
-        file.version = this.nextFileVersion(file.uri)
-        plugin.clear()
+      // Collect unsynced changes from ALL views of this file.
+      // We pick the first view with changes as the canonical source
+      // since each view tracks its own edits independently.
+      for (let view of file.allViews()) {
+        let plugin = LSPPlugin.get(view)
+        if (!plugin) continue
+        let changes = plugin.unsyncedChanges
+        if (!changes.empty) {
+          result.push({changes, file, prevDoc: file.doc})
+          file.doc = view.state.doc
+          file.version = this.nextFileVersion(file.uri)
+          plugin.clear()
+          // Only sync one view's changes per cycle to maintain consistency
+          break
+        }
       }
     }
     return result
   }
 
   openFile(uri: string, languageId: string, view: EditorView) {
-    if (this.getFile(uri))
-      throw new Error("Default workspace implementation doesn't support multiple views on the same file")
-    let file = new DefaultWorkspaceFile(uri, languageId, this.nextFileVersion(uri), view.state.doc, view) 
+    let existing = this.getFile(uri) as DefaultWorkspaceFile | null
+    if (existing) {
+      // File already open — add this view without re-notifying the server
+      existing.addView(view)
+      return
+    }
+    let file = new DefaultWorkspaceFile(uri, languageId, this.nextFileVersion(uri), view.state.doc, view)
     this.files.push(file)
     this.client.didOpen(file)
   }
 
-  closeFile(uri: string) {
-    let file = this.getFile(uri)
+  closeFile(uri: string, view: EditorView) {
+    let file = this.getFile(uri) as DefaultWorkspaceFile | null
     if (file) {
-      this.files = this.files.filter(f => f != file)
-      this.client.didClose(uri)
+      // Remove this specific view from the file
+      let hasRemaining = file.removeView(view)
+      if (!hasRemaining) {
+        // Last view closed — remove file and notify server
+        this.files = this.files.filter(f => f != file)
+        this.client.didClose(uri)
+      }
     }
   }
 }
