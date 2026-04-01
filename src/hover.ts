@@ -42,6 +42,9 @@ function lspTooltipSource(view: EditorView, pos: number): Promise<Tooltip | null
       },
       above: true
     }
+  }).catch(e => {
+    console.warn("hover tooltip:", e)
+    return null
   })
 }
 

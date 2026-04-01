@@ -1,5 +1,6 @@
 import type * as lsp from "vscode-languageserver-protocol"
 import {EditorState, Extension, Facet} from "@codemirror/state"
+import {EditorView} from "@codemirror/view"
 import {CompletionSource, Completion, CompletionContext, snippet, autocompletion} from "@codemirror/autocomplete"
 import {LSPPlugin} from "./plugin"
 
@@ -18,13 +19,24 @@ export function serverCompletion(config: {
   /// expression that accepts word characters, optionally prefixed by
   /// any non-word prefixes found in the results.
   validFor?: RegExp
+  /// Additional option renderers to include in the autocompletion
+  /// tooltip. Each entry has a `render` function that receives a
+  /// completion, the editor state, and the editor view, and should
+  /// return a DOM node (or null to skip), plus a `position` number
+  /// that determines where the node appears relative to other
+  /// elements (icon is 20, label is 50, detail is 80).
+  addToOptions?: {render: (completion: Completion, state: EditorState, view: EditorView) => Node | null, position: number}[]
 } = {}): Extension {
+  let autoConfig: {override?: CompletionSource[], addToOptions?: typeof config.addToOptions} = {}
+  if (config.override) autoConfig.override = [serverCompletionSource]
+  if (config.addToOptions) autoConfig.addToOptions = config.addToOptions
+
   let result: Extension[]
   if (config.override) {
-    result = [autocompletion({override: [serverCompletionSource]})]
+    result = [autocompletion(autoConfig)]
   } else {
     let data = [{autocomplete: serverCompletionSource}]
-    result = [autocompletion(), EditorState.languageData.of(() => data)]
+    result = [autocompletion(autoConfig), EditorState.languageData.of(() => data)]
   }
   if (config.validFor) result.push(completionConfig.of({validFor: config.validFor}))
   return result
@@ -91,9 +103,19 @@ export const serverCompletionSource: CompletionSource = context => {
           label: text,
           type: item.kind && kindToType[item.kind],
         }
+        // Use displayLabel when the insert text differs from the label
+        if (item.label !== text) option.displayLabel = item.label
+        // Handle LSP labelDetails (3.17+): detail appended to display,
+        // description shown as the completion detail
+        if (item.labelDetails) {
+          let display = item.label
+          if (item.labelDetails.detail) display += item.labelDetails.detail
+          option.displayLabel = display
+          if (item.labelDetails.description) option.detail = item.labelDetails.description
+        }
         if (item.commitCharacters && item.commitCharacters != defaultCommitChars)
           option.commitCharacters = item.commitCharacters
-        if (item.detail) option.detail = item.detail
+        if (!option.detail && item.detail) option.detail = item.detail
         if (item.sortText) option.sortText = item.sortText
         if (item.insertTextFormat == 2 /* Snippet */) {
           option.apply = (view, c, from, to) => snippet(text.replace(/\$(\d+)/g, "${$1}"))(view, c, from, to)

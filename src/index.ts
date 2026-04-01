@@ -48,9 +48,12 @@ export function languageServerSupport(client: LSPClient, uri: string, languageID
 /// in a way that can be passed to the
 /// [`extensions`](#lsp-client.LSPClientConfig.extensions) option to
 /// `LSPClient`.
-export function languageServerExtensions(): readonly (Extension | LSPClientExtension)[] {
+export function languageServerExtensions(config?: {
+  /// Configuration passed to `serverCompletion()`.
+  completion?: Parameters<typeof serverCompletion>[0]
+}): readonly (Extension | LSPClientExtension)[] {
   return [
-    serverCompletion(),
+    serverCompletion(config?.completion),
     hoverTooltips(),
     keymap.of([...formatKeymap, ...renameKeymap, ...jumpToDefinitionKeymap, ...findReferencesKeymap]),
     signatureHelp(),

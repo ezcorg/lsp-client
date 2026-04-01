@@ -2,9 +2,13 @@ import {EditorView} from "@codemirror/view"
 
 export const lspTheme = EditorView.baseTheme({
   ".cm-lsp-documentation": {
-    padding: "0 7px",
+    padding: "4px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "1rem",
+
     "& p, & pre": {
-      margin: "2px 0"
+      margin: "0"
     }
   },
 
