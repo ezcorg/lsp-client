@@ -36,6 +36,7 @@ const clientCapabilities: lsp.ClientCapabilities = {
         snippetSupport: true,
         documentationFormat: ["plaintext", "markdown"],
         insertReplaceSupport: false,
+        labelDetailsSupport: true,
       },
       completionList: {
         itemDefaults: ["commitCharacters", "editRange", "insertTextFormat"]
@@ -56,10 +57,10 @@ const clientCapabilities: lsp.ClientCapabilities = {
         activeParameterSupport: true,
       },
     },
-    definition: {},
-    declaration: {},
-    implementation: {},
-    typeDefinition: {},
+    definition: { linkSupport: true },
+    declaration: { linkSupport: true },
+    implementation: { linkSupport: true },
+    typeDefinition: { linkSupport: true },
     references: {},
     diagnostic: {},
   },

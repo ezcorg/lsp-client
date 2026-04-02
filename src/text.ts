@@ -23,7 +23,9 @@ const marked = new Marked({
     let lang = context.language && context.language(token.lang)
     if (!lang) {
       let viewLang = context.view.state.facet(languageFacet)
-      if (viewLang && viewLang.name == token.lang) lang = viewLang
+      // Match by exact name, or fall back to the editor's language
+      // when the code block lang is a common alias (e.g. "ts" for "javascript")
+      if (viewLang) lang = viewLang
     }
     if (!lang) return
     let highlighter: Highlighter = {style: tags => highlightingFor(context!.view.state, tags)}

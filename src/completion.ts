@@ -121,7 +121,37 @@ export const serverCompletionSource: CompletionSource = context => {
           option.apply = (view, c, from, to) => snippet(text.replace(/\$(\d+)/g, "${$1}"))(view, c, from, to)
           option.label = item.label
         }
-        if (item.documentation) option.info = () => renderDocInfo(plugin, item.documentation!)
+        // Info panel: resolve on hover/selection (cached), like VS Code.
+        let canResolve = !!plugin.client.serverCapabilities?.completionProvider?.resolveProvider
+        let resolveCache: lsp.CompletionItem | null = null
+        option.info = async () => {
+          let resolved = resolveCache ?? item
+          // Resolve to fill in detail/documentation if the server supports it
+          if (!resolveCache && canResolve) {
+            try {
+              let r = await plugin.client.request<lsp.CompletionItem, lsp.CompletionItem>("completionItem/resolve", item)
+              if (r) resolved = r
+            } catch {}
+            resolveCache = resolved
+          }
+          let container = document.createElement("div")
+          container.className = "cm-lsp-documentation cm-lsp-completion-documentation"
+          // Type signature — render as a TypeScript code block for syntax highlighting
+          if (resolved.detail) {
+            let sig = document.createElement("div")
+            sig.innerHTML = plugin.docToHTML({kind: "markdown", value: "```ts\n" + resolved.detail + "\n```"})
+            container.appendChild(sig)
+          }
+          // Documentation
+          if (resolved.documentation) {
+            let doc = document.createElement("div")
+            doc.innerHTML = plugin.docToHTML(resolved.documentation)
+            container.appendChild(doc)
+          }
+          // Backfill detail for inline renderer
+          if (resolved.detail && !option.detail) option.detail = resolved.detail
+          return container.childNodes.length ? container : null
+        }
         return option
       }),
       commitCharacters: defaultCommitChars,
